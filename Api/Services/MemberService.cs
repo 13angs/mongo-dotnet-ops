@@ -1,5 +1,6 @@
 using Api.Interfaces;
 using Api.Paramters;
+using Api.Stores;
 using MongoDB.Bson;
 using MongoDB.Driver;
 
@@ -30,14 +31,52 @@ namespace Api.Services
             }
         }
         public string GetAllMember(MemberParam param)
-        { 
-            // var filter = Builders<BsonDocument>.Filter.Eq("_id", "3d7400d214d54cbeb7833fd277d65e95");
-            var members = _memberCols.Find(_ => true)
-                .ToEnumerable()
-                .Take(param.Limit);
-            // long count = _memberCols.CountDocuments(_ => true);
-            // Console.WriteLine($"{members.ToJson()}, {count}");
-            return members.ToJson();
+        {
+            var pipeline = new BsonDocument[]{};
+            if(param.Type == MemberQueryStore.ByChannel)
+            {
+                pipeline = new BsonDocument[]
+                {
+                    new BsonDocument("$match", new BsonDocument("channels.channel_id", param.ChannelId)),
+                    BsonDocument.Parse("{ $lookup: { from: 'wn_omni_channels', localField: 'channels.channel_id', foreignField: '_id', as: 'channel_info' } }"),
+                    BsonDocument.Parse("{ $unwind: '$channel_info' }"),
+                    BsonDocument.Parse("{ $addFields: { 'channels': [ { 'channel_id': '$channel_info._id', 'channel_name': '$channel_info.channel_name', 'client_id': '$channel_info.client_id' } ] } }"),
+                    new BsonDocument("$project", new BsonDocument
+                    {
+                        { "member_id", "$_id" },
+                        { "_id", 0 },
+                        { "channels", 1 },
+                        { "created_date", new BsonDocument("$dateToString", new BsonDocument
+                            {
+                                { "format", "%Y-%m-%dT%H:%M:%S.%LZ" },
+                                { "date", "$created_date" }
+                            })
+                        },
+                        { "modified_date", new BsonDocument("$dateToString", new BsonDocument
+                            {
+                                { "format", "%Y-%m-%dT%H:%M:%S.%LZ" },
+                                { "date", "$modified_date" }
+                            })
+                        },
+                        { "member_name", "$member.name" },
+                        { "line_profile", new BsonDocument{
+                            { "follow_date", new BsonDocument("$dateToString", new BsonDocument
+                                {
+                                    { "format", "%Y-%m-%dT%H:%M:%S.%LZ" },
+                                    { "date", "$created_date" }
+                                })
+                            }
+                        } },
+                    }),
+                    new BsonDocument("$limit", param.Limit) // add limit here
+                };
+            }
+
+            List<BsonDocument> pResults = _memberCols.Aggregate<BsonDocument>(pipeline).ToList();
+            // var members = _memberCols.Find(_ => true)
+            //     .ToEnumerable()
+            //     .Take(param.Limit);
+            return pResults.ToJson();
         }
     }
 }
