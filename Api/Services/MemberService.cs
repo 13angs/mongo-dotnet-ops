@@ -38,8 +38,19 @@ namespace Api.Services
                 pipeline = new BsonDocument[]
                 {
                     new BsonDocument("$match", new BsonDocument("channels.channel_id", param.ChannelId)),
-                    BsonDocument.Parse("{ $lookup: { from: 'wn_omni_channels', localField: 'channels.channel_id', foreignField: '_id', as: 'channel_info' } }"),
-                    BsonDocument.Parse("{ $unwind: '$channel_info' }"),
+                    new BsonDocument{
+                        { 
+                            "$lookup", new BsonDocument{ 
+                                {"from", "wn_omni_channels"}, 
+                                { "localField", "channels.channel_id"}, 
+                                { "foreignField", "_id" }, 
+                                { "as", "channel_info" } 
+                            } 
+                        }
+                    },
+                    new BsonDocument{
+                        { "$unwind", "$channel_info" }
+                    },
                     BsonDocument.Parse("{ $addFields: { 'channels': [ { 'channel_id': '$channel_info._id', 'channel_name': '$channel_info.channel_name', 'client_id': '$channel_info.client_id' } ] } }"),
                     new BsonDocument("$project", new BsonDocument
                     {
@@ -59,6 +70,65 @@ namespace Api.Services
                             })
                         },
                         { "member_name", "$member.name" },
+                        { "line_profile", new BsonDocument{
+                            { "follow_date", new BsonDocument("$dateToString", new BsonDocument
+                                {
+                                    { "format", "%Y-%m-%dT%H:%M:%S.%LZ" },
+                                    { "date", "$created_date" }
+                                })
+                            }
+                        } },
+                    }),
+                    new BsonDocument("$limit", param.Limit) // add limit here
+                };
+            }
+            if(param.Type == MemberQueryStore.ByProvider)
+            {
+                pipeline = new BsonDocument[]
+                {
+                    new BsonDocument{
+                        { 
+                            "$lookup", new BsonDocument{ 
+                                { "from", "wn_omni_channels" }, 
+                                { "localField", "channels.channel_id"}, 
+                                { "foreignField", "_id" }, 
+                                { "as", "channel" } 
+                            } 
+                        }
+                    },
+                    new BsonDocument{
+                        { 
+                            "$lookup", new BsonDocument{ 
+                                { "from", "wn_omni_providers" }, 
+                                { "localField", "channel.provider_id"}, 
+                                { "foreignField", "_id" }, 
+                                { "as", "provider" } 
+                            } 
+                        }
+                    },
+                    new BsonDocument("$match", new BsonDocument("provider._id", param.ProviderId)),
+                    new BsonDocument{
+                        { "$unwind", "$channel" }
+                    },
+                    BsonDocument.Parse("{ $addFields: { 'channels': [ { 'channel_id': '$channel._id', 'channel_name': '$channel.channel_name', 'client_id': '$channel.client_id' } ] } }"),
+                    new BsonDocument("$project", new BsonDocument
+                    {
+                        { "member_id", "$_id" },
+                        { "_id", 0 },
+                        { "channels", 1 },
+                        { "member_name", 1 },
+                        { "created_date", new BsonDocument("$dateToString", new BsonDocument
+                            {
+                                { "format", "%Y-%m-%dT%H:%M:%S.%LZ" },
+                                { "date", "$created_date" }
+                            })
+                        },
+                        { "modified_date", new BsonDocument("$dateToString", new BsonDocument
+                            {
+                                { "format", "%Y-%m-%dT%H:%M:%S.%LZ" },
+                                { "date", "$modified_date" }
+                            })
+                        },
                         { "line_profile", new BsonDocument{
                             { "follow_date", new BsonDocument("$dateToString", new BsonDocument
                                 {
