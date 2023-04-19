@@ -1,0 +1,45 @@
+mongodb:
+  image:
+    repository: mongo
+    tag:
+      dev: latest
+      staging: latest
+      prod: latest
+  labels:
+    app: mongodb
+    team: backend
+  secrets:
+    rootUser: "root"
+    rootPass: "password"
+  persistence:
+    size:
+      dev: 10Gi
+      staging: 10Gi
+      prod: 10Gi
+    storageClassName: standard
+    hostPath:
+      path: /mnt/data/mongodb
+    mountPath: /data/db
+  ports:
+    default: 27017
+
+global:
+  secrets:
+    pass:
+      dev: password
+      staging: password
+      prod: password
+    internalApi:
+      key: ''
+  envs:
+    # TZ
+    tz: Asia/Bangkok
+    # ASPNETCORE_ENVIRONMENT
+    
+  mongodb:
+    name: mongodb
+    configMapKeys:
+      mongodbHostname: mongodbHostname
+    secretKeys:
+      rootUser: rootUser
+      rootPass: rootPass

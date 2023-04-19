@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-secret
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+data:
+  {{ .Values.global.mongodb.secretKeys.rootUser }}: {{ .Values.mongodb.secrets.rootUser | b64enc }}
+  {{ .Values.global.mongodb.secretKeys.rootPass }}:
+    {{- if eq .Release.Namespace "prod" }}
+      {{ .Values.global.secrets.pass.prod | b64enc }}
+    {{ else if eq .Release.Namespace "staging" }}
+      {{ .Values.global.secrets.pass.staging | b64enc }}
+    {{ else }}
+      {{ .Values.global.secrets.pass.dev | b64enc }}
+    {{- end }}
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ .Values.global.mongodb.configMapKeys.mongodbHostname }}:
+    {{- if eq .Release.Namespace "prod" }}
+      "mongodb://{{ .Values.mongodb.secrets.rootUser }}:{{ .Values.global.secrets.pass.prod }}@{{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-srv:27017"
+    {{ else if eq .Release.Namespace "staging" }}
+      "mongodb://{{ .Values.mongodb.secrets.rootUser }}:{{ .Values.global.secrets.pass.staging }}@{{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-srv:27017"
+    {{ else }}
+      "mongodb://{{ .Values.mongodb.secrets.rootUser }}:{{ .Values.global.secrets.pass.dev }}@{{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-srv:27017"
+    {{- end }}
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 
+        {{- if eq .Release.Namespace "prod" }}
+          {{ .Values.mongodb.persistence.size.prod }}
+        {{ else if eq .Release.Namespace "staging" }}
+          {{ .Values.mongodb.persistence.size.staging }}
+        {{ else }}
+          {{ .Values.mongodb.persistence.size.dev }}
+        {{- end }}
+  storageClassName: {{ .Values.mongodb.persistence.storageClassName }}
+
+# ---
+
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+#   name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-pv
+# spec:
+#   capacity:
+#     storage: 
+#       {{- if eq .Release.Namespace "prod" }}
+#         {{ .Values.mongodb.persistence.size.prod }}
+#       {{ else if eq .Release.Namespace "staging" }}
+#         {{ .Values.mongodb.persistence.size.staging }}
+#       {{ else }}
+#         {{ .Values.mongodb.persistence.size.dev }}
+#       {{- end }}
+#   accessModes:
+#     - ReadWriteOnce
+#   persistentVolumeReclaimPolicy: Retain
+#   storageClassName: {{ .Values.mongodb.persistence.storageClassName }}
+#   hostPath:
+#     path: {{ .Values.mongodb.persistence.hostPath.path }}/{{ .Release.Namespace }}
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-depl
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.mongodb.labels.app }}-{{ .Release.Namespace }}
+    team: {{ .Values.mongodb.labels.team }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.mongodb.labels.app }}-{{ .Release.Namespace }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.mongodb.labels.app }}-{{ .Release.Namespace }}
+    spec:
+      volumes:
+        - name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-pvc
+      containers:
+        - name: {{ .Values.global.mongodb.name }}-con
+          image:
+            {{- if eq .Release.Namespace "prod" }}
+              {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag.prod }}
+            {{ else if eq .Release.Namespace "staging" }}
+              {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag.staging }}
+            {{ else }}
+              {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag.dev }}
+            {{- end }}
+          volumeMounts:
+            - name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-data
+              mountPath: {{ .Values.mongodb.persistence.mountPath }}
+          # resources:
+          #   limits:
+          #     memory: 512Mi
+          #     cpu: "1"
+          ports:
+            - containerPort: {{ .Values.mongodb.ports.default }} 
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-secret
+                  key: {{ .Values.global.mongodb.secretKeys.rootUser }}
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-secret
+                  key: {{ .Values.global.mongodb.secretKeys.rootPass }}
+            - name: TZ
+              value: {{ .Values.global.envs.tz }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}-srv
+spec: 
+  selector:
+    app: {{ .Values.global.mongodb.name }}-{{ .Release.Namespace }}
+  ports:
+    - port: {{ .Values.mongodb.ports.default }} 
+      name: {{ .Values.global.mongodb.name }}
+      targetPort: {{ .Values.mongodb.ports.default }}
+      nodePort: 30001
+  type: NodePort
